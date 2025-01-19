@@ -13,3 +13,7 @@ The dataset can be accessed directly from Kaggle [Loan Approval Prediction](http
 5. Save the best performing model as `train.py` 
 6. Load model to script `predict.py` , Serving it via a web service with Flask.
 7. Containerization with Docker
+
+**Note**
+
+*Due to missing the submission deadline for the midterm project, I intend to repurpose it as the Capstone1 of [Datatalks Machine Learning Engineering zoomcamp](https://github.com/DataTalksClub/machine-learning-zoomcamp/tree/master).*

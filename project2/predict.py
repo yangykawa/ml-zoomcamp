@@ -1,84 +1,70 @@
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from peft import PeftModel
 import torch
 from flask import Flask, request, jsonify
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from peft import LoraConfig, get_peft_model, TaskType
 
 app = Flask(__name__)
 
-label2id = {0: "class_0", 1: "class_1", 2: "class_2", 3: "class_3"}
-id2label = {v: k for k, v in label2id.items()}
+MODEL_PATH = "./output/model_lora"  # Path to the LoRA model
 
-MODEL_PATH = "model_lora.pt"
-MODEL_CHECKPOINT = "distilbert-base-uncased"
+# Load the base model and tokenizer
+base_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=4)
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 
-def load_model():
-    try:
-        model_bert = AutoModelForSequenceClassification.from_pretrained(
-            MODEL_CHECKPOINT,
-            num_labels=4,
-            id2label=id2label,
-            label2id=label2id,
-            ignore_mismatched_sizes=True
-        )
-        print("Model loaded successfully!")
-        
-        lora_config = LoraConfig(
-            task_type=TaskType.SEQ_CLS, 
-            inference_mode=False,
-            r=4,
-            lora_alpha=32,
-            lora_dropout=0.1,
-            target_modules=["q_lin", "v_lin"]
-        )
-        
-        model_lora = get_peft_model(model_bert, lora_config)
-        model_lora.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')), strict=False)
-        model_lora.eval() 
-        print("Model loaded and set to evaluation mode!")
-        
-        return model_lora
-    except Exception as e:
-        print(f"Error while loading model: {str(e)}")
-        raise e
+# Load the LoRA weights
+model_lora = PeftModel.from_pretrained(base_model, MODEL_PATH)
 
+# Set the model to evaluation mode
+model_lora.eval()
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_CHECKPOINT)
-
+# Define the prediction function
 def predict(texts, model_lora, tokenizer):
+    # Tokenize the input texts
     encodings = tokenizer(texts, truncation=True, padding=True, max_length=512, return_tensors="pt")
     
-    with torch.no_grad():
+    # Get the model's outputs
+    with torch.no_grad():  # Disable gradient calculation for inference
         outputs = model_lora(**encodings)
         logits = outputs.logits  # [batch_size, num_labels]
     
+    # Calculate the predicted labels
     predictions = torch.argmax(logits, dim=-1)
+    
+    # Return the predictions
     return predictions
 
-print("Loading model...")
-model_lora = load_model()
-print("Model loaded successfully!")
-
+# Define Flask route
 @app.route('/predict', methods=['POST'])
 def predict_route():
     try:
+        # Get the JSON data from the request
         data = request.get_json()
+        
+        # Check if the request body is empty or malformed
         if not data:
             raise ValueError("Request body is empty or malformed.")
-
+        
+        # Get the list of texts
         texts = data.get("texts", [])
         if not texts:
             raise ValueError("No texts provided.")
         
-    
+        # Perform prediction
         predictions = predict(texts, model_lora, tokenizer)
+        
+        # Define label mapping
+        id2label = {0: "irrelevant", 1: "negative", 2: "neutral", 3: "positive"}  # Adjust based on your model
         result = [id2label[pred.item()] for pred in predictions]
 
+        # Return the prediction results
         return jsonify({"predictions": result})
-
+    
     except Exception as e:
-        print(f"Error: {str(e)}") 
+        # Error handling
+        print(f"Error: {str(e)}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
+# Flask app entry point
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0', port=9696)
